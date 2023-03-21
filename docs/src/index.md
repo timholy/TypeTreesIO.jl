@@ -1,14 +1,14 @@
 ```@meta
-CurrentModule = TypeTreeIO
+CurrentModule = TypeTreesIO
 ```
 
-# TypeTreeIO
+# TypeTreesIO
 
-Documentation for [TypeTreeIO](https://github.com/timholy/TypeTreeIO.jl).
+Documentation for [TypeTreesIO](https://github.com/timholy/TypeTreesIO.jl).
 
 ```@index
 ```
 
 ```@autodocs
-Modules = [TypeTreeIO]
+Modules = [TypeTreesIO]
 ```

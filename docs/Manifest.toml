@@ -111,7 +111,7 @@ version = "1.0.3"
 deps = ["InteractiveUtils", "Logging", "Random", "Serialization"]
 uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
-[[deps.TypeTreeIO]]
+[[deps.TypeTreesIO]]
 path = ".."
 uuid = "9f5f5923-1066-4ce0-8771-70668807c795"
 version = "1.0.0-DEV"
