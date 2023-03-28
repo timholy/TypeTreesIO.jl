@@ -22,7 +22,9 @@ end
 ## IO interface
 
 Base.flush(::TypeTreeIO) = nothing
-Base.closewrite(::TypeTreeIO) = nothing
+if isdefined(Base, :closewrite)
+    Base.closewrite(::TypeTreeIO) = nothing
+end
 Base.iswritable(::TypeTreeIO) = true
 
 function Base.unsafe_write(io::TypeTreeIO, p::Ptr{UInt8}, nb::UInt)
