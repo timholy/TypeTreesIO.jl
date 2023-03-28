@@ -29,10 +29,17 @@ julia> print(ttio, typeof(obj));
 julia> print_tree(ttio.tree)
 "SubArray"
 ├─ "Int64"
-├─ " 1"
-├─ " Vector"
+├─ "1"
+├─ "Vector"
 │  └─ "Int64"
-├─ "UnitRange"
-│  └─ "Int64"
-└─ " true"
+├─ "Tuple"
+│  └─ "UnitRange"
+│     └─ "Int64"
+└─ "true"
+
+julia> println(stdout, ttio.tree; maxwidth=55)
+SubArray{Int64, 1, Vector{…}, Tuple{…}, true}
+
+julia> println(stdout, ttio.tree; maxwidth=60)
+SubArray{Int64, 1, Vector{Int64}, Tuple{UnitRange{…}}, true}
 ```

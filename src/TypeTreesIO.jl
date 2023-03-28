@@ -10,32 +10,48 @@ end
 TypeTreeNode(name::AbstractString="", parent=nothing) = TypeTreeNode(name, parent, nothing)
 
 mutable struct TypeTreeIO <: IO    # TODO?: abstract type TextIO <: IO end for text-only printing
-    io::IO
-    tree::TypeTreeNode
-    cursor::TypeTreeNode
+    io::Union{IOBuffer,IOContext{IOBuffer}}
+    tree::TypeTreeNode     # tree structure
+    cursor::TypeTreeNode   # current position in the tree
 end
-function TypeTreeIO(io::IO=IOBuffer())
+function TypeTreeIO(io=IOBuffer())
     root = TypeTreeNode()
     return TypeTreeIO(io, root, root)
+end
+
+## IO interface
+
+Base.flush(::TypeTreeIO) = nothing
+Base.closewrite(::TypeTreeIO) = nothing
+Base.iswritable(::TypeTreeIO) = true
+
+function Base.unsafe_write(io::TypeTreeIO, p::Ptr{UInt8}, nb::UInt)
+    str = String(unsafe_wrap(Array, p, (Int(nb),)))
+    for c in str
+        write(io, c)
+    end
+    return nb
 end
 
 Base.get(treeio::TypeTreeIO, key, default) = get(treeio.io, key, default)
 
 getio(io::TypeTreeIO) = io.io
 getio(ioctx::IOContext{TypeTreeIO}) = getio(ioctx.io)
-getttio(io::TypeTreeIO) = io
-getttio(io::IOContext{TypeTreeIO}) = io.io
-
 
 function Base.write(treeio::TypeTreeIO, c::Char)
     curs = treeio.cursor
     if c == '{'
-        if curs.children === nothing
+        str = String(take!(getio(treeio)))
+        if isempty(curs.name)
+            @assert curs.children === nothing
             curs.children = TypeTreeNode[]
-            curs.name = String(take!(getio(treeio)))
+            curs.name = str
         else
             # We're dropping in depth
-            newcurs = TypeTreeNode(String(take!(getio(treeio))), curs)
+            newcurs = TypeTreeNode(str, curs)
+            if curs.children === nothing
+                curs.children = TypeTreeNode[]
+            end
             push!(curs.children, newcurs)
             treeio.cursor = newcurs
         end
@@ -52,32 +68,83 @@ function Base.write(treeio::TypeTreeIO, c::Char)
                 treeio.cursor = p
             end
         end
-    else
+    elseif c != ' '
         print(treeio.io, c)
     end
     return textwidth(c)
 end
 
-function Base.write(treeio::TypeTreeIO, s::Union{String,SubString{String}})
-    n = 0
-    for c in s
-        n += write(treeio, c)
+
+## Printing the tree with constraints on width and/or depth
+
+const truncstr = "{…}"
+const delims = ('{', '}')
+const per_param = ", "
+
+function Base.print(io::IO, node::TypeTreeNode; depth=nothing, maxdepth=typemax(Int), maxwidth=typemax(Int))
+    if depth === nothing
+        depth = choose_depth(node, maxdepth, maxwidth)
     end
-    return n
+    _print(io, node, 1, depth)
+end
+Base.println(io::IO, node::TypeTreeNode; kwargs...) = (print(io, node; kwargs...); print(io, '\n'))
+
+function _print(io::IO, node::TypeTreeNode, thisdepth, maxdepth)
+    print(io, node.name)
+    childs = node.children
+    if childs !== nothing
+        if thisdepth >= maxdepth
+            print(io, truncstr)
+            return
+        end
+        print(io, delims[1])
+        n = lastindex(childs)
+        for (i, child) in pairs(childs)
+            _print(io, child, thisdepth+1, maxdepth)
+            i < n && print(io, per_param)
+        end
+        print(io, delims[end])
+    end
 end
 
-writegeneric(treeio, x) = (write(getio(treeio), x); write(getttio(treeio), String(take!(getio(treeio)))))
-printgeneric(treeio, x) = (print(getio(treeio), x); print(getttio(treeio), String(take!(getio(treeio)))))
- showgeneric(treeio, x) = (show(getio(treeio), x); print(getttio(treeio), String(take!(getio(treeio)))))
+function choose_depth(node::TypeTreeNode, maxdepth::Int, maxwidth::Int)
+    wd, wtrunc = width_by_depth(node)
+    wsum, depth = 0, 1
+    while depth <= maxdepth && depth <= length(wd)
+        wsum += wd[depth]
+        if wsum + wtrunc[depth] > maxwidth
+            return depth - 1
+        end
+        depth += 1
+    end
+    return depth - 1
+end
 
-Base.write(treeio::IOContext{TypeTreeIO}, c::Char) = writegeneric(treeio, c)
-Base.write(treeio::IOContext{TypeTreeIO}, s::Union{String,SubString{String}}) = writegeneric(treeio, s)
 
-for IOT in (TypeTreeIO, IOContext{TypeTreeIO})
-    @eval Base.write(treeio::$IOT, s::Symbol) = writegeneric(treeio, s)
-    @eval Base.show(treeio::$IOT, c::AbstractChar) = showgeneric(treeio, c)
-    @eval Base.show(treeio::$IOT, n::BigInt) = showgeneric(treeio, n)
-    @eval Base.show(treeio::$IOT, n::Signed) = showgeneric(treeio, n)
+"""
+    width_by_depth(node) → wd, wtrunc
+
+Compute the number of characters `wd[depth]` needed to print at each `depth` within the tree.
+Also compute the number of additional characters `wtrunc[depth]` needed if one truncates the tree at `depth`.
+"""
+width_by_depth(node::TypeTreeNode) = width_by_depth!(Int[], Int[], node, 1)
+
+function width_by_depth!(wd, wtrunc, node, depth)
+    if depth > length(wd)
+        push!(wd, 0)
+        push!(wtrunc, 0)
+    end
+    wd[depth] += length(node.name)
+    childs = node.children
+    if childs !== nothing
+        wd[depth] += length(delims)
+        wtrunc[depth] += length(truncstr) - length(delims)
+        for child in childs
+            width_by_depth!(wd, wtrunc, child, depth+1)
+        end
+        wd[depth+1] += length(per_param) * (length(childs) - 1)
+    end
+    return wd, wtrunc
 end
 
 end
