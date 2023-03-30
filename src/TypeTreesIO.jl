@@ -113,6 +113,8 @@ end
 function Base.show(io::IO, bundle::TypeTreeBundle)
     depth = get(io, :type_depth, nothing)::Union{Int,Nothing}
     if depth === nothing
+        maxdepth = get(io, :type_maxdepth, typemax(Int))::Int
+        maxwidth = get(io, :type_maxwidth, typemax(Int))::Int
         depth = choose_depth(bundle, maxdepth, maxwidth)
     end
     _print(io, bundle.body, 1, depth)
