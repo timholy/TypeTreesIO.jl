@@ -1,80 +1,119 @@
 module TypeTreesIO
 
-export TypeTreeIO, TypeTreeNode
+export TypeTreeNode, typetree
 
-mutable struct TypeTreeNode
-    name::String
+struct TypeTreeNode
+    name::Union{String,TypeVar}
     parent::Union{Nothing,TypeTreeNode}
-    children::Union{Nothing,Vector{TypeTreeNode}}
-end
-TypeTreeNode(name::AbstractString="", parent=nothing) = TypeTreeNode(name, parent, nothing)
-
-mutable struct TypeTreeIO <: IO    # TODO?: abstract type TextIO <: IO end for text-only printing
-    io::Union{IOBuffer,IOContext{IOBuffer}}
-    tree::TypeTreeNode     # tree structure
-    cursor::TypeTreeNode   # current position in the tree
-end
-function TypeTreeIO(io=IOBuffer())
-    root = TypeTreeNode()
-    return TypeTreeIO(io, root, root)
+    children::Union{Nothing,Vector{Any}}
 end
 
-## IO interface
+const TypeNodeArg = Union{Union,DataType,TypeVar,Core.TypeofBottom}
 
-Base.flush(::TypeTreeIO) = nothing
-if isdefined(Base, :closewrite)
-    Base.closewrite(::TypeTreeIO) = nothing
-end
-Base.iswritable(::TypeTreeIO) = true
+function TypeTreeNode(@nospecialize(T::TypeNodeArg), parent=nothing)
+    childnode(@nospecialize(C), p) = isa(C, TypeNodeArg) ? TypeTreeNode(C, p) : TypeTreeNode(string(C), p, nothing)
 
-function Base.unsafe_write(io::TypeTreeIO, p::Ptr{UInt8}, nb::UInt)
-    str = String(unsafe_wrap(Array, p, (Int(nb),)))
-    for c in str
-        write(io, c)
+    isa(T, TypeVar) && return TypeTreeNode(T, parent, nothing)
+    isa(T, Core.TypeofBottom) && return TypeTreeNode("Union", parent, Any[])
+    if isa(T, Union)
+        node = TypeTreeNode("Union", parent, Any[])
+        push!(node.children, childnode(T.a, node))
+        push!(node.children, childnode(T.b, node))
+        return node
     end
-    return nb
-end
-
-Base.get(treeio::TypeTreeIO, key, default) = get(treeio.io, key, default)
-
-getio(io::TypeTreeIO) = io.io
-getio(ioctx::IOContext{TypeTreeIO}) = getio(ioctx.io)
-
-function Base.write(treeio::TypeTreeIO, c::Char)
-    curs = treeio.cursor
-    if c == '{'
-        str = String(take!(getio(treeio)))
-        if isempty(curs.name)
-            @assert curs.children === nothing
-            curs.children = TypeTreeNode[]
-            curs.name = str
-        else
-            # We're dropping in depth
-            newcurs = TypeTreeNode(str, curs)
-            if curs.children === nothing
-                curs.children = TypeTreeNode[]
-            end
-            push!(curs.children, newcurs)
-            treeio.cursor = newcurs
-        end
-    elseif c ∈ (',', '}')
-        str = String(take!(getio(treeio)))
-        if !isempty(str)
-            if curs.children === nothing
-                curs.children = TypeTreeNode[]
-            end
-            push!(curs.children, TypeTreeNode(str, curs))
-        else
-            p = curs.parent
-            if p !== nothing
-                treeio.cursor = p
-            end
-        end
-    elseif c != ' '
-        print(treeio.io, c)
+    children = isempty(T.parameters) ? nothing : Any[]
+    node = TypeTreeNode(string(T.name.name), parent, children)
+    for p in T.parameters
+        push!(node.children, childnode(p, node))
     end
-    return textwidth(c)
+    return node
 end
+
+struct TypeVarTree
+    tv::TypeVar
+    lb::Union{Nothing,TypeTreeNode}
+    ub::Union{Nothing,TypeTreeNode}
+end
+function TypeVarTree(tv::TypeVar)
+    bound(@nospecialize(b)) = b === Union{} ? nothing : TypeTreeNode(b)
+
+    return TypeVarTree(tv, bound(tv.lb), bound(tv.ub))
+end
+
+struct UnionAllTree
+    body::Union{TypeTreeNode, UnionAllTree}
+    var::TypeVarTree
+end
+UnionAllTree(T::UnionAll) = UnionAllTree(typetree(T.body), TypeVarTree(T.var))
+
+typetree(@nospecialize(T::Type)) = isa(T, UnionAll) ? UnionAllTree(T) : TypeTreeNode(T)
+
+# mutable struct TypeTreeIO <: IO    # TODO?: abstract type TextIO <: IO end for text-only printing
+#     io::Union{IOBuffer,IOContext{IOBuffer}}
+#     tree::TypeTreeNode     # tree structure
+#     cursor::TypeTreeNode   # current position in the tree
+# end
+# function TypeTreeIO(io=IOBuffer())
+#     root = TypeTreeNode()
+#     return TypeTreeIO(io, root, root)
+# end
+
+# ## IO interface
+
+# Base.flush(::TypeTreeIO) = nothing
+# if isdefined(Base, :closewrite)
+#     Base.closewrite(::TypeTreeIO) = nothing
+# end
+# Base.iswritable(::TypeTreeIO) = true
+
+# function Base.unsafe_write(io::TypeTreeIO, p::Ptr{UInt8}, nb::UInt)
+#     str = String(unsafe_wrap(Array, p, (Int(nb),)))
+#     for c in str
+#         write(io, c)
+#     end
+#     return nb
+# end
+
+# Base.get(treeio::TypeTreeIO, key, default) = get(treeio.io, key, default)
+
+# getio(io::TypeTreeIO) = io.io
+# getio(ioctx::IOContext{TypeTreeIO}) = getio(ioctx.io)
+
+# function Base.write(treeio::TypeTreeIO, c::Char)
+#     curs = treeio.cursor
+#     if c == '{'
+#         str = String(take!(getio(treeio)))
+#         if isempty(curs.name)
+#             @assert curs.children === nothing
+#             curs.children = TypeTreeNode[]
+#             curs.name = str
+#         else
+#             # We're dropping in depth
+#             newcurs = TypeTreeNode(str, curs)
+#             if curs.children === nothing
+#                 curs.children = TypeTreeNode[]
+#             end
+#             push!(curs.children, newcurs)
+#             treeio.cursor = newcurs
+#         end
+#     elseif c ∈ (',', '}')
+#         str = String(take!(getio(treeio)))
+#         if !isempty(str)
+#             if curs.children === nothing
+#                 curs.children = TypeTreeNode[]
+#             end
+#             push!(curs.children, TypeTreeNode(str, curs))
+#         else
+#             p = curs.parent
+#             if p !== nothing
+#                 treeio.cursor = p
+#             end
+#         end
+#     elseif c != ' '
+#         print(treeio.io, c)
+#     end
+#     return textwidth(c)
+# end
 
 
 ## Printing the tree with constraints on width and/or depth
