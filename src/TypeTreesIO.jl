@@ -9,14 +9,20 @@ mutable struct TypeTreeNode
 end
 TypeTreeNode(name::AbstractString="", parent=nothing) = TypeTreeNode(name, parent, nothing)
 
+mutable struct TypeTreeBundle
+    body::TypeTreeNode                  # DataType
+    vars::Union{Nothing,TypeTreeNode}   # TypeVars
+end
+TypeTreeBundle(node::TypeTreeNode) = TypeTreeBundle(node, nothing)
+
 mutable struct TypeTreeIO <: IO    # TODO?: abstract type TextIO <: IO end for text-only printing
     io::Union{IOBuffer,IOContext{IOBuffer}}
-    tree::TypeTreeNode     # tree structure
+    tree::TypeTreeBundle
     cursor::TypeTreeNode   # current position in the tree
 end
 function TypeTreeIO(io=IOBuffer())
     root = TypeTreeNode()
-    return TypeTreeIO(io, root, root)
+    return TypeTreeIO(io, TypeTreeBundle(root), root)
 end
 
 ## IO interface
@@ -29,6 +35,12 @@ Base.iswritable(::TypeTreeIO) = true
 
 function Base.unsafe_write(io::TypeTreeIO, p::Ptr{UInt8}, nb::UInt)
     str = String(unsafe_wrap(Array, p, (Int(nb),)))
+    if startswith(str, " where ")
+        @assert io.tree.vars === nothing
+        io.cursor = io.tree.vars = TypeTreeNode(" where ")
+        io.cursor.children = TypeTreeNode[]
+        return nb
+    end
     for c in str
         write(io, c)
     end
@@ -83,13 +95,39 @@ const truncstr = "{…}"
 const delims = ('{', '}')
 const per_param = ", "
 
-function Base.print(io::IO, node::TypeTreeNode; depth=nothing, maxdepth=typemax(Int), maxwidth=typemax(Int))
-    if depth === nothing
-        depth = choose_depth(node, maxdepth, maxwidth)
+function Base.take!(io::TypeTreeIO)
+    str = String(take!(io.io))
+    if !isempty(str)
+        curs = io.cursor
+        if curs.children === nothing
+            curs.children = TypeTreeNode[]
+        end
+        push!(curs.children, TypeTreeNode(str, curs))
     end
-    _print(io, node, 1, depth)
+    str = sprint(show, io.tree)
+    io.tree = TypeTreeBundle(TypeTreeNode())
+    io.cursor = io.tree.body
+    return codeunits(str)
 end
-Base.println(io::IO, node::TypeTreeNode; kwargs...) = (print(io, node; kwargs...); print(io, '\n'))
+
+function Base.show(io::IO, bundle::TypeTreeBundle)
+    depth = get(io, :type_depth, nothing)::Union{Int,Nothing}
+    if depth === nothing
+        maxdepth = get(io, :type_maxdepth, typemax(Int))::Int
+        maxwidth = get(io, :type_maxwidth, typemax(Int))::Int
+        depth = choose_depth(bundle, maxdepth, maxwidth)
+    end
+    _print(io, bundle.body, 1, depth)
+    vars = bundle.vars
+    if vars !== nothing
+        children = vars.children
+        if children !== nothing && length(children) == 1
+            vars = children[1]
+            print(io, " where ")
+        end
+        _print(io, vars, 1, depth)
+    end
+end
 
 function _print(io::IO, node::TypeTreeNode, thisdepth, maxdepth)
     print(io, node.name)
@@ -109,8 +147,7 @@ function _print(io::IO, node::TypeTreeNode, thisdepth, maxdepth)
     end
 end
 
-function choose_depth(node::TypeTreeNode, maxdepth::Int, maxwidth::Int)
-    wd, wtrunc = width_by_depth(node)
+function choose_depth(wd::Vector{Int}, wtrunc::Vector{Int}, maxdepth::Int, maxwidth::Int)
     wsum, depth = 0, 1
     while depth <= maxdepth && depth <= length(wd)
         wsum += wd[depth]
@@ -121,7 +158,8 @@ function choose_depth(node::TypeTreeNode, maxdepth::Int, maxwidth::Int)
     end
     return depth - 1
 end
-
+choose_depth(bundle::TypeTreeBundle, maxdepth::Int, maxwidth::Int) =
+    choose_depth(width_by_depth(bundle)..., maxdepth, maxwidth)
 
 """
     width_by_depth(node) → wd, wtrunc
@@ -129,9 +167,16 @@ end
 Compute the number of characters `wd[depth]` needed to print at each `depth` within the tree.
 Also compute the number of additional characters `wtrunc[depth]` needed if one truncates the tree at `depth`.
 """
-width_by_depth(node::TypeTreeNode) = width_by_depth!(Int[], Int[], node, 1)
+function width_by_depth(bundle::TypeTreeBundle)
+    wd, wtrunc = Int[], Int[]
+    width_by_depth!(wd, wtrunc, bundle.body, 1)
+    if bundle.vars !== nothing
+        width_by_depth!(wd, wtrunc, bundle.vars, 1)
+    end
+    return wd, wtrunc
+end
 
-function width_by_depth!(wd, wtrunc, node, depth)
+function width_by_depth!(wd, wtrunc, node::TypeTreeNode, depth)
     if depth > length(wd)
         push!(wd, 0)
         push!(wtrunc, 0)
