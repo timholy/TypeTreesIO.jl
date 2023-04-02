@@ -18,6 +18,39 @@ mutable struct TypeTreeBundle
 end
 TypeTreeBundle(node::TypeTreeNode) = TypeTreeBundle(node, nothing)
 
+"""
+    TypeTreeIO() → io
+
+Create an IO object to which you can print type objects or natural signatures.
+Afterwards, `io.tree` will contain a tree representation of the printed type.
+
+# Examples
+
+```jldoctest
+julia> io = TypeTreeIO();
+
+julia> print(io, Tuple{Int,Float64});
+
+julia> io.tree.body.name
+"Tuple"
+
+julia> io.tree.body.children[1].name
+"$Int"
+
+julia> String(take!(io))
+"Tuple{$Int, Float64}"
+```
+
+# Extended help
+
+In addition to printing a type directly to an `io::TypeTreeIO`, you can also
+assemble it manually if you follow a few precautions:
+
+    - any `where` statement must be printed as `print(io, " where ")` or
+      `print(io, " where {")`. The `where` string argument may not have any
+      additional characters. Note the bracketing spaces.
+
+"""
 mutable struct TypeTreeIO <: IO    # TODO?: abstract type TextIO <: IO end for text-only printing
     io::Union{IOBuffer,IOContext{IOBuffer}}
     tree::TypeTreeBundle
