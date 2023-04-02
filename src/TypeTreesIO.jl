@@ -2,12 +2,15 @@ module TypeTreesIO
 
 export TypeTreeIO, TypeTreeNode
 
+const delims = (('(', ')'), ('{', '}'))
+
 mutable struct TypeTreeNode
     name::String
     parent::Union{Nothing,TypeTreeNode}
+    delimidx::Int8          # 1 or 2 for delims[delimidx], 0 for not assigned
     children::Union{Nothing,Vector{TypeTreeNode}}
 end
-TypeTreeNode(name::AbstractString="", parent=nothing) = TypeTreeNode(name, parent, nothing)
+TypeTreeNode(name::AbstractString="", parent=nothing) = TypeTreeNode(name, parent, 0, nothing)
 
 mutable struct TypeTreeBundle
     body::TypeTreeNode                  # DataType
@@ -27,9 +30,16 @@ end
 
 ## IO interface
 
-Base.flush(::TypeTreeIO) = nothing
-if isdefined(Base, :closewrite)
-    Base.closewrite(::TypeTreeIO) = nothing
+function Base.flush(io::TypeTreeIO)
+    str = String(take!(io.io))
+    if !isempty(str)
+        curs = io.cursor
+        if curs.children === nothing
+            curs.children = TypeTreeNode[]
+        end
+        push!(curs.children, TypeTreeNode(str, curs))
+    end
+    return
 end
 Base.iswritable(::TypeTreeIO) = true
 
@@ -38,6 +48,7 @@ function Base.unsafe_write(io::TypeTreeIO, p::Ptr{UInt8}, nb::UInt)
     if startswith(str, " where ")
         @assert io.tree.vars === nothing
         io.cursor = io.tree.vars = TypeTreeNode(" where ")
+        endswith(str, '{') && (io.cursor.delimidx = 2)
         io.cursor.children = TypeTreeNode[]
         return nb
     end
@@ -54,24 +65,36 @@ getio(ioctx::IOContext{TypeTreeIO}) = getio(ioctx.io)
 
 function Base.write(treeio::TypeTreeIO, c::Char)
     curs = treeio.cursor
-    if c == '{'
+    if c ∈ ('{', '(')
         str = String(take!(getio(treeio)))
+        if c == '(' && str == "typeof"
+            # oops, we shouldn't have grabbed this, put it back
+            print(getio(treeio), str, '(')
+            return textwidth(c)
+        end
         if isempty(curs.name)
             @assert curs.children === nothing
             curs.children = TypeTreeNode[]
             curs.name = str
-        else
+            curs.delimidx = c == '(' ? 1 : 2
+            else
             # We're dropping in depth
             newcurs = TypeTreeNode(str, curs)
+            newcurs.delimidx = c == '(' ? 1 : 2
             if curs.children === nothing
                 curs.children = TypeTreeNode[]
             end
             push!(curs.children, newcurs)
             treeio.cursor = newcurs
         end
-    elseif c ∈ (',', '}')
+    elseif c ∈ (',', '}', ')')
         str = String(take!(getio(treeio)))
         if !isempty(str)
+            if c == ')' && startswith(str, "typeof(")
+                # put it back
+                print(getio(treeio), str, c)
+                return textwidth(c)
+            end
             if curs.children === nothing
                 curs.children = TypeTreeNode[]
             end
@@ -91,19 +114,11 @@ end
 
 ## Printing the tree with constraints on width and/or depth
 
-const truncstr = "{…}"
-const delims = ('{', '}')
+const truncchar = "…"
 const per_param = ", "
 
 function Base.take!(io::TypeTreeIO)
-    str = String(take!(io.io))
-    if !isempty(str)
-        curs = io.cursor
-        if curs.children === nothing
-            curs.children = TypeTreeNode[]
-        end
-        push!(curs.children, TypeTreeNode(str, curs))
-    end
+    flush(io)
     str = sprint(show, io.tree)
     io.tree = TypeTreeBundle(TypeTreeNode())
     io.cursor = io.tree.body
@@ -133,17 +148,18 @@ function _print(io::IO, node::TypeTreeNode, thisdepth, maxdepth)
     print(io, node.name)
     childs = node.children
     if childs !== nothing
+        delimidx = node.delimidx
+        iszero(delimidx) || print(io, delims[delimidx][1])
         if thisdepth >= maxdepth
-            print(io, truncstr)
-            return
+            print(io, truncchar)
+        else
+            n = lastindex(childs)
+            for (i, child) in pairs(childs)
+                _print(io, child, thisdepth+1, maxdepth)
+                i < n && print(io, per_param)
+            end
         end
-        print(io, delims[1])
-        n = lastindex(childs)
-        for (i, child) in pairs(childs)
-            _print(io, child, thisdepth+1, maxdepth)
-            i < n && print(io, per_param)
-        end
-        print(io, delims[end])
+        iszero(delimidx) || print(io, delims[delimidx][end])
     end
 end
 
@@ -184,8 +200,11 @@ function width_by_depth!(wd, wtrunc, node::TypeTreeNode, depth)
     wd[depth] += length(node.name)
     childs = node.children
     if childs !== nothing
-        wd[depth] += length(delims)
-        wtrunc[depth] += length(truncstr) - length(delims)
+        delimidx = node.delimidx
+        if !iszero(delimidx)
+            wd[depth] += length(delims[node.delimidx])
+        end
+        wtrunc[depth] += length(truncchar)
         for child in childs
             width_by_depth!(wd, wtrunc, child, depth+1)
         end
