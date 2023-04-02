@@ -52,4 +52,15 @@ AbstractTrees.nodevalue(node::TypeTreeNode) = node.name
     # Test whether it's reusable
     print(ttio, typ)
     @test String(take!(ttio)) == sprint(print, typ)
+
+    # Whole signatures
+    ttio = TypeTreeIO()
+    m = which(show, (IO, String))
+    print(ttio, m.sig)
+    @test String(take!(ttio)) == sprint(print, m.sig)
+    print(ttio, "show(io::IO, x::String)")
+    @test String(take!(ttio)) == "show(io::IO, x::String)"
+    T = TypeVar(:T)
+    print(ttio, "show(io::IO, x::", T, ')', " where ", T)
+    @test String(take!(ttio)) == "show(io::IO, x::T) where T"
 end
