@@ -52,6 +52,9 @@ AbstractTrees.nodevalue(node::TypeTreeNode) = node.name
     # Test whether it's reusable
     print(ttio, typ)
     @test String(take!(ttio)) == sprint(print, typ)
+    # IOContext
+    print(IOContext(ttio, :color=>true), typ)
+    @test String(take!(ttio)) == sprint(print, typ)
 
     # Whole signatures
     ttio = TypeTreeIO()
