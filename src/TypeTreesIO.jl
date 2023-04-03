@@ -9,11 +9,16 @@ struct TypeTreeNode
 end
 
 const TypeNodeArg = Union{Union,DataType,TypeVar,Core.TypeofBottom}
+const svnull = Core.svec()
+const vnull = Any[]
+
+childnode(@nospecialize(C), p) = isa(C, TypeNodeArg) ? TypeTreeNode(C, p) :
+                                 isa(C, UnionAll) ? UnionAllTree(C, p) : TypeTreeNode(string(C), p, nothing)
 
 function TypeTreeNode(@nospecialize(T::TypeNodeArg), parent=nothing)
-    childnode(@nospecialize(C), p) = isa(C, TypeNodeArg) ? TypeTreeNode(C, p) : TypeTreeNode(string(C), p, nothing)
-
     isa(T, TypeVar) && return TypeTreeNode(T, parent, nothing)
+    Talias = Base.make_typealias(T)
+    Talias !== nothing && return TypeTreeNode(Talias..., parent, T)
     isa(T, Core.TypeofBottom) && return TypeTreeNode("Union", parent, Any[])
     if isa(T, Union)
         node = TypeTreeNode("Union", parent, Any[])
@@ -21,10 +26,21 @@ function TypeTreeNode(@nospecialize(T::TypeNodeArg), parent=nothing)
         push!(node.children, childnode(T.b, node))
         return node
     end
+    T = T::DataType
     children = isempty(T.parameters) ? nothing : Any[]
     node = TypeTreeNode(string(T.name.name), parent, children)
     for p in T.parameters
         push!(node.children, childnode(p, node))
+    end
+    return node
+end
+function TypeTreeNode(gr::GlobalRef, p::Core.SimpleVector, parent, @nospecialize(T))
+    name = sprint(Base.show_typealias, gr, T, svnull, vnull)
+    node = TypeTreeNode(name, parent, isempty(p) ? nothing : Any[])
+    if !isempty(p)
+        for child in p
+            push!(node.children, childnode(child, node))
+        end
     end
     return node
 end
@@ -44,9 +60,13 @@ struct UnionAllTree
     body::Union{TypeTreeNode, UnionAllTree}
     var::TypeVarTree
 end
-UnionAllTree(T::UnionAll) = UnionAllTree(typetree(T.body), TypeVarTree(T.var))
+function UnionAllTree(T::UnionAll, parent=nothing)
+    Talias = Base.make_typealias(T)
+    Talias === nothing && return UnionAllTree(typetree(T.body, parent), TypeVarTree(T.var))
+    return UnionAllTree(TypeTreeNode(Talias..., parent, T), TypeVarTree(T.var))
+end
 
-typetree(@nospecialize(T::Type)) = isa(T, UnionAll) ? UnionAllTree(T) : TypeTreeNode(T)
+typetree(@nospecialize(T::Type), parent=nothing) = isa(T, UnionAll) ? UnionAllTree(T, parent) : TypeTreeNode(T, parent)
 
 # mutable struct TypeTreeIO <: IO    # TODO?: abstract type TextIO <: IO end for text-only printing
 #     io::Union{IOBuffer,IOContext{IOBuffer}}
