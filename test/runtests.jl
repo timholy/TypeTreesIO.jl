@@ -2,9 +2,6 @@ using TypeTreesIO
 using AbstractTrees
 using Test
 
-AbstractTrees.children(node::TypeTreeNode) = (v = node.children; v === nothing ? () : v)
-AbstractTrees.nodevalue(node::TypeTreeNode) = node.name
-
 @testset "TypeTreesIO.jl" begin
     obj = view([1, 2, 3], 1:2)
     tt = typetree(typeof(obj))
