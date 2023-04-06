@@ -37,9 +37,9 @@ julia> print_tree(ttio.tree)          # show the tree structure (from AbstractTr
 │     └─ "Int64"
 └─ "true"
 
-julia> println(stdout, ttio.tree; maxwidth=55)
+julia> println(IOContext(stdout, :type_maxwidth=>55), ttio.tree)
 SubArray{Int64, 1, Vector{…}, Tuple{…}, true}
 
-julia> println(stdout, ttio.tree; maxwidth=60)
+julia> println(IOContext(stdout, :type_maxwidth=>60), ttio.tree)
 SubArray{Int64, 1, Vector{Int64}, Tuple{UnitRange{…}}, true}
 ```
