@@ -56,6 +56,12 @@ AbstractTrees.nodevalue(node::TypeTreeNode) = node.name
     print(IOContext(ttio, :color=>true), typ)
     @test String(take!(ttio)) == sprint(print, typ)
 
+    # Issue #4
+    ttio = TypeTreeIO()
+    typ = Union{Int32, T} where T
+    print(ttio, typ)
+    @test String(take!(ttio)) == sprint(print, typ)
+
     # Whole signatures
     ttio = TypeTreeIO()
     m = which(show, (IO, String))

@@ -143,6 +143,7 @@ function Base.write(treeio::TypeTreeIO, c::Char)
     end
     return textwidth(c)
 end
+Base.write(treeio::IOContext{TypeTreeIO}, c::Char) = write(treeio.io, c)
 
 
 ## Printing the tree with constraints on width and/or depth
