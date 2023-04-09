@@ -110,7 +110,7 @@ function Base.write(treeio::TypeTreeIO, c::Char)
             curs.children = TypeTreeNode[]
             curs.name = str
             curs.delimidx = c == '(' ? 1 : 2
-            else
+        else
             # We're dropping in depth
             newcurs = TypeTreeNode(str, curs)
             newcurs.delimidx = c == '(' ? 1 : 2
@@ -133,9 +133,13 @@ function Base.write(treeio::TypeTreeIO, c::Char)
             end
             push!(curs.children, TypeTreeNode(str, curs))
         else
-            p = curs.parent
-            if p !== nothing
-                treeio.cursor = p
+            if curs.children === nothing
+                curs.children = TypeTreeNode[]
+            else
+                p = curs.parent
+                if p !== nothing
+                    treeio.cursor = p
+                end
             end
         end
     elseif c != ' '
@@ -184,7 +188,7 @@ function _print(io::IO, node::TypeTreeNode, thisdepth, maxdepth)
     if childs !== nothing
         delimidx = node.delimidx
         iszero(delimidx) || print(io, delims[delimidx][1])
-        if thisdepth >= maxdepth
+        if thisdepth >= maxdepth && (node.children === nothing || !isempty(node.children))
             print(io, truncchar)
         else
             n = lastindex(childs)
@@ -242,7 +246,9 @@ function width_by_depth!(wd, wtrunc, node::TypeTreeNode, depth)
         for child in childs
             width_by_depth!(wd, wtrunc, child, depth+1)
         end
-        wd[depth+1] += length(per_param) * (length(childs) - 1)
+        if lastindex(wd) > depth
+            wd[depth+1] += length(per_param) * (length(childs) - 1)
+        end
     end
     return wd, wtrunc
 end

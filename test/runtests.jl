@@ -62,6 +62,34 @@ AbstractTrees.nodevalue(node::TypeTreeNode) = node.name
     print(ttio, typ)
     @test String(take!(ttio)) == sprint(print, typ)
 
+    ttio = TypeTreeIO()
+    print(ttio, Tuple{})
+    @test String(take!(ttio)) == sprint(print, Tuple{})
+
+    a = UInt8(81):UInt8(160)
+    b = view(a, 1:64)
+    c = reshape(b, (8, 8))
+    d = reinterpret(reshape, Float64, c)
+    sqrteach(a) = [sqrt(x) for x in a]
+    st = try
+        sqrteach(d)
+    catch e
+        stacktrace(catch_backtrace())
+    end
+    ttio = TypeTreeIO()
+    nmi = 0
+    for sf in st
+        mi = sf.linfo
+        if mi !== nothing
+            if isa(mi, Core.MethodInstance)
+                nmi += 1
+                print(ttio, mi.specTypes)
+                @test String(take!(ttio)) == sprint(print, mi.specTypes)
+            end
+        end
+    end
+    @test nmi > 0
+
     # Whole signatures
     ttio = TypeTreeIO()
     m = which(show, (IO, String))
